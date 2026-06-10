@@ -39,6 +39,12 @@ const pnlClass = (v) => (v >= 0 ? 'pos' : 'neg');
 const esc = (s) =>
   String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
+// título do mercado vira link para o Polymarket quando temos o slug
+const marketLink = (title, slug) =>
+  slug
+    ? `<a class="mlink" href="https://polymarket.com/event/${encodeURIComponent(slug)}" target="_blank" rel="noopener">${esc(title)}</a>`
+    : esc(title);
+
 async function api(path, opts) {
   const res = await fetch(path, opts);
   if (!res.ok) throw new Error(`${path}: HTTP ${res.status}`);
@@ -113,7 +119,7 @@ async function loadFeed() {
         </div>
         <div class="feed-market">
           <span class="${it.side === 'BUY' ? 'side-buy' : 'side-sell'}">${it.side === 'BUY' ? '▲ COMPROU' : '▼ VENDEU'}</span>
-          ${esc(it.outcome || '')} — ${esc(it.title)}
+          ${esc(it.outcome || '')} — ${marketLink(it.title, it.slug)}
         </div>
         <div class="feed-detail">${fmtCents(it.price)} · ${fmtUsdCompact(it.usdcSize)} · ${Math.round(it.size).toLocaleString('pt-BR')} shares</div>
       </div>`
@@ -146,7 +152,12 @@ async function openWallet(address, name) {
 
   $('#stat-grid').innerHTML = [
     statCard('PnL total', fmtUsdCompact(s.pnlTotal), `${fmtUsdCompact(s.pnlRealized)} realizado`, pnlClass(s.pnlTotal)),
-    statCard('Win rate', fmtPct(s.winRate), `${s.decidedPositions} posições decididas`, s.winRate >= 50 ? 'pos' : 'neg'),
+    statCard(
+      'Win rate',
+      fmtPct(s.winRate),
+      `${s.decidedPositions} posições c/ resultado`,
+      s.winRate == null ? '' : s.winRate >= 50 ? 'pos' : 'neg'
+    ),
     statCard('ROI médio', fmtPct(s.roiAvg), 'por posição', pnlClass(s.roiAvg)),
     statCard('Posições abertas', s.openPositions, `${fmtUsdCompact(s.invested)} investidos`),
     statCard('Trades recentes', s.tradeCount, `${s.tradesPerDay7d.toFixed(1)}/dia · 7d`),
@@ -158,7 +169,7 @@ async function openWallet(address, name) {
     w.positions
       .map(
         (p) => `<tr>
-        <td>${esc(p.title)}</td>
+        <td>${marketLink(p.title, p.slug)}</td>
         <td>${esc(p.outcome || '—')}</td>
         <td class="num mono">${fmtCents(p.avgPrice)}</td>
         <td class="num mono">${fmtCents(p.curPrice)}</td>
@@ -176,7 +187,7 @@ async function openWallet(address, name) {
         (a) => `<tr>
         <td class="mono">${timeAgo(a.timestamp)}</td>
         <td class="${a.side === 'BUY' ? 'side-buy' : 'side-sell'}">${a.side === 'BUY' ? '▲' : '▼'}</td>
-        <td>${esc(a.outcome || '')} · ${esc(a.title)}</td>
+        <td>${esc(a.outcome || '')} · ${marketLink(a.title, a.slug)}</td>
         <td class="num mono">${fmtCents(a.price)}</td>
         <td class="num mono">${fmtUsdCompact(a.usdcSize)}</td>
       </tr>`
@@ -188,6 +199,9 @@ async function openWallet(address, name) {
 
 function drawSparkline(points) {
   const canvas = $('#sparkline');
+  // casa a resolução interna com o tamanho renderizado (evita linha borrada)
+  canvas.width = canvas.clientWidth || 600;
+  canvas.height = canvas.clientHeight || 48;
   const ctx = canvas.getContext('2d');
   ctx.clearRect(0, 0, canvas.width, canvas.height);
 

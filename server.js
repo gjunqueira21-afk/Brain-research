@@ -79,30 +79,60 @@ const DEMO = require('./demo-data.js');
 // Polymarket
 // ---------------------------------------------------------------------------
 
+// A API de leaderboard já mudou de formato/parâmetros mais de uma vez;
+// tentamos várias combinações de endpoint + janela até uma responder.
+const WINDOW_ALIASES = {
+  '1d': ['1d', 'day'],
+  '1w': ['1w', '7d', 'week'],
+  '1m': ['1m', '30d', 'month'],
+  all: ['all'],
+};
+
+function normalizeLeaderboardRow(r, i) {
+  return {
+    rank: i + 1,
+    address: r.proxyWallet || r.walletAddress || r.address || r.wallet || r.user || null,
+    name: r.userName || r.name || r.pseudonym || null,
+    pseudonym: r.pseudonym || null,
+    avatar: r.profileImage || r.profileImageOptimized || null,
+    amount: Number(r.amount ?? r.pnl ?? r.vol ?? r.volume ?? r.profit ?? 0),
+  };
+}
+
 /** Leaderboard das carteiras com maior PnL/volume na janela escolhida. */
 async function getLeaderboard(window = '1m', rankType = 'pnl', limit = 20) {
   return cached(`lb:${window}:${rankType}:${limit}`, 60_000, async () => {
-    try {
-      const rows = await fetchJson(
-        `${PM_LEADERBOARD}?window=${window}&rankType=${rankType}&limit=${limit}`
-      );
-      const list = (Array.isArray(rows) ? rows : rows?.leaderboard || []).map((r, i) => ({
-        rank: i + 1,
-        address: r.proxyWallet || r.walletAddress || r.address,
-        name: r.userName || r.name || r.pseudonym || null,
-        pseudonym: r.pseudonym || null,
-        avatar: r.profileImage || null,
-        amount: Number(r.amount ?? r.pnl ?? r.vol ?? 0),
-      }));
-      return { demo: false, window, rankType, traders: list };
-    } catch (err) {
-      console.warn(`[leaderboard] usando demo: ${err.message}`);
-      return { demo: true, window, rankType, traders: DEMO.leaderboard };
+    const windows = WINDOW_ALIASES[window] || [window];
+    const candidates = [];
+    for (const w of windows) {
+      candidates.push(`${PM_LEADERBOARD}?window=${w}&rankType=${rankType}&limit=${limit}`);
+      candidates.push(`${PM_DATA}/leaderboard?window=${w}&rankType=${rankType}&limit=${limit}`);
     }
+
+    let lastErr = null;
+    for (const url of candidates) {
+      try {
+        const rows = await fetchJson(url);
+        const arr = Array.isArray(rows) ? rows : rows?.leaderboard || rows?.traders || [];
+        const list = arr.map(normalizeLeaderboardRow).filter((t) => t.address);
+        if (list.length) return { demo: false, window, rankType, traders: list };
+      } catch (err) {
+        lastErr = err;
+      }
+    }
+    console.warn(`[leaderboard] usando demo: ${lastErr ? lastErr.message : 'resposta vazia'}`);
+    return { demo: true, window, rankType, traders: DEMO.leaderboard };
   });
 }
 
-/** Estatísticas calculadas a partir das posições + histórico de trades. */
+/**
+ * Estatísticas calculadas a partir das posições + histórico de trades.
+ *
+ * Honestidade metodológica: a API só retorna as posições ATUAIS da
+ * carteira, então o win rate considera posições com resultado relevante
+ * (PnL realizado ou flutuante) — é um proxy da forma do trader, não o
+ * histórico completo de mercados já encerrados e resgatados.
+ */
 function computeStats(positions, activity) {
   const decided = positions.filter((p) => Math.abs(p.cashPnl) > 0.01 || Math.abs(p.realizedPnl) > 0.01);
   const wins = decided.filter((p) => p.cashPnl + p.realizedPnl > 0).length;
@@ -138,36 +168,56 @@ function computeStats(positions, activity) {
   };
 }
 
+const num = (v) => {
+  const n = Number(v);
+  return Number.isFinite(n) ? n : 0;
+};
+
+// Tolerante a variações de nome/ausência de campos na API real: valores
+// derivados (initialValue, cashPnl, percentPnl) são recalculados a partir
+// de size/avgPrice/curPrice sempre que possível, em vez de confiar no campo.
 function normalizePosition(p) {
+  const size = num(p.size);
+  const avgPrice = num(p.avgPrice ?? p.avg_price);
+  const curPrice = num(p.curPrice ?? p.currentPrice ?? p.price);
+  const initialValue = num(p.initialValue) || size * avgPrice;
+  const currentValue = num(p.currentValue) || size * curPrice;
+  const cashPnl = p.cashPnl != null ? num(p.cashPnl) : currentValue - initialValue;
+  const realizedPnl = num(p.realizedPnl ?? p.realizedPnL);
   return {
-    title: p.title,
-    outcome: p.outcome,
-    slug: p.slug,
+    title: p.title || p.question || p.market || '—',
+    outcome: p.outcome || null,
+    slug: p.eventSlug || p.slug || null,
     icon: p.icon || null,
-    size: Number(p.size || 0),
-    avgPrice: Number(p.avgPrice || 0),
-    curPrice: Number(p.curPrice || 0),
-    initialValue: Number(p.initialValue || 0),
-    currentValue: Number(p.currentValue || 0),
-    cashPnl: Number(p.cashPnl || 0),
-    realizedPnl: Number(p.realizedPnl || 0),
-    percentPnl: Number(p.percentPnl || 0),
+    size,
+    avgPrice,
+    curPrice,
+    initialValue,
+    currentValue,
+    cashPnl,
+    realizedPnl,
+    // % calculado localmente: o campo da API ora vem como fração, ora como %
+    percentPnl: initialValue > 0.005 ? (cashPnl / initialValue) * 100 : num(p.percentPnl),
     endDate: p.endDate || null,
     redeemable: !!p.redeemable,
   };
 }
 
 function normalizeActivity(a) {
+  let ts = num(a.timestamp);
+  if (ts > 1e12) ts = Math.round(ts / 1000); // ms → s
+  const size = num(a.size);
+  const price = num(a.price);
   return {
-    timestamp: Number(a.timestamp || 0),
-    type: a.type,
-    side: a.side || null,
-    size: Number(a.size || 0),
-    usdcSize: Number(a.usdcSize || 0),
-    price: Number(a.price || 0),
-    title: a.title,
+    timestamp: ts,
+    type: String(a.type || 'TRADE').toUpperCase(),
+    side: a.side ? String(a.side).toUpperCase() : null,
+    size,
+    usdcSize: num(a.usdcSize ?? a.usdc) || size * price,
+    price,
+    title: a.title || a.question || '—',
     outcome: a.outcome || null,
-    slug: a.slug || null,
+    slug: a.eventSlug || a.slug || null,
     txHash: a.transactionHash || null,
   };
 }
@@ -284,16 +334,19 @@ async function getKalshiRadar() {
     try {
       const data = await fetchJson(`${KALSHI_API}/markets?limit=200&status=open`);
       const markets = (data.markets || [])
-        .map((m) => ({
-          ticker: m.ticker,
-          title: m.title || m.ticker,
-          subtitle: m.subtitle || m.yes_sub_title || '',
-          lastPrice: Number(m.last_price || 0),
-          prevPrice: Number(m.previous_price || m.last_price || 0),
-          volume24h: Number(m.volume_24h || 0),
-          openInterest: Number(m.open_interest || 0),
-          closeTime: m.close_time || null,
-        }))
+        .map((m) => {
+          const last = num(m.last_price) || num(m.yes_bid);
+          return {
+            ticker: m.ticker,
+            title: m.title || m.ticker,
+            subtitle: m.subtitle || m.yes_sub_title || '',
+            lastPrice: last,
+            prevPrice: num(m.previous_price) || last,
+            volume24h: num(m.volume_24h),
+            openInterest: num(m.open_interest),
+            closeTime: m.close_time || null,
+          };
+        })
         .filter((m) => m.volume24h > 0)
         .sort((a, b) => b.volume24h - a.volume24h)
         .slice(0, 15);
