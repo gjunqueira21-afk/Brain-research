@@ -20,7 +20,8 @@ const PORT = process.env.PORT || 3000;
 const PUBLIC_DIR = path.join(__dirname, 'public');
 const DATA_DIR = path.join(__dirname, 'data');
 
-const PM_LEADERBOARD = 'https://lb-api.polymarket.com/leaderboard';
+const PM_LEADERBOARD_V1 = 'https://data-api.polymarket.com/v1/leaderboard';
+const PM_LEADERBOARD_LEGACY = 'https://lb-api.polymarket.com/leaderboard';
 const PM_DATA = 'https://data-api.polymarket.com';
 const KALSHI_API = 'https://api.elections.kalshi.com/trade-api/v2';
 
@@ -79,13 +80,15 @@ const DEMO = require('./demo-data.js');
 // Polymarket
 // ---------------------------------------------------------------------------
 
-// A API de leaderboard já mudou de formato/parâmetros mais de uma vez;
-// tentamos várias combinações de endpoint + janela até uma responder.
-const WINDOW_ALIASES = {
-  '1d': ['1d', 'day'],
-  '1w': ['1w', '7d', 'week'],
-  '1m': ['1m', '30d', 'month'],
-  all: ['all'],
+// A API de leaderboard já mudou de formato/parâmetros mais de uma vez.
+// Mapeia a janela do frontend para os dois esquemas conhecidos:
+//   - v1 (atual): timePeriod = DAY | WEEK | MONTH | ALL ; orderBy = PNL | VOL
+//   - legacy:     window     = 1d  | 1w   | 1m    | all ; rankType = pnl | vol
+const WINDOW_MAP = {
+  '1d': { v1: 'DAY', legacy: ['1d', 'day'] },
+  '1w': { v1: 'WEEK', legacy: ['1w', '7d', 'week'] },
+  '1m': { v1: 'MONTH', legacy: ['1m', '30d', 'month'] },
+  all: { v1: 'ALL', legacy: ['all'] },
 };
 
 function normalizeLeaderboardRow(r, i) {
@@ -102,18 +105,25 @@ function normalizeLeaderboardRow(r, i) {
 /** Leaderboard das carteiras com maior PnL/volume na janela escolhida. */
 async function getLeaderboard(window = '1m', rankType = 'pnl', limit = 20) {
   return cached(`lb:${window}:${rankType}:${limit}`, 60_000, async () => {
-    const windows = WINDOW_ALIASES[window] || [window];
-    const candidates = [];
-    for (const w of windows) {
-      candidates.push(`${PM_LEADERBOARD}?window=${w}&rankType=${rankType}&limit=${limit}`);
-      candidates.push(`${PM_DATA}/leaderboard?window=${w}&rankType=${rankType}&limit=${limit}`);
-    }
+    const map = WINDOW_MAP[window] || WINDOW_MAP['1m'];
+    const cap = Math.min(limit, 50); // o v1 aceita no máx. 50
+    const candidates = [
+      // 1) endpoint atual (v1)
+      `${PM_LEADERBOARD_V1}?timePeriod=${map.v1}&orderBy=${rankType.toUpperCase()}&limit=${cap}`,
+      // 2) fallback legado, caso o servidor antigo ainda esteja no ar
+      ...map.legacy.flatMap((w) => [
+        `${PM_LEADERBOARD_LEGACY}?window=${w}&rankType=${rankType}&limit=${limit}`,
+        `${PM_DATA}/leaderboard?window=${w}&rankType=${rankType}&limit=${limit}`,
+      ]),
+    ];
 
     let lastErr = null;
     for (const url of candidates) {
       try {
         const rows = await fetchJson(url);
-        const arr = Array.isArray(rows) ? rows : rows?.leaderboard || rows?.traders || [];
+        const arr = Array.isArray(rows)
+          ? rows
+          : rows?.leaderboard || rows?.traders || rows?.data || [];
         const list = arr.map(normalizeLeaderboardRow).filter((t) => t.address);
         if (list.length) return { demo: false, window, rankType, traders: list };
       } catch (err) {
