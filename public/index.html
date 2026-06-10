@@ -1,0 +1,136 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>ALPHA RADAR — Copy-Trading Polymarket × Kalshi</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@500;700;900&family=JetBrains+Mono:wght@400;600&family=Inter:wght@400;500;600&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div class="bg-grid"></div>
+  <div class="bg-glow"></div>
+
+  <header class="topbar glass">
+    <div class="brand">
+      <span class="brand-mark">◢◤</span>
+      <h1>ALPHA<span>RADAR</span></h1>
+      <span class="tagline">smart-money tracker · polymarket × kalshi</span>
+    </div>
+    <div class="topbar-right">
+      <span id="demo-badge" class="badge badge-demo hidden">MODO DEMO — APIs offline</span>
+      <span class="badge badge-live" id="live-badge"><span class="pulse"></span>AO VIVO</span>
+      <span class="clock mono" id="clock">--:--:--</span>
+    </div>
+  </header>
+
+  <main class="layout">
+    <!-- ════════ LEADERBOARD ════════ -->
+    <section class="panel glass" id="panel-leaderboard">
+      <div class="panel-head">
+        <h2>⬡ Top Carteiras — Polymarket</h2>
+        <div class="controls">
+          <select id="lb-window" class="ctrl">
+            <option value="1d">24h</option>
+            <option value="1w">7 dias</option>
+            <option value="1m" selected>30 dias</option>
+            <option value="all">Tudo</option>
+          </select>
+          <select id="lb-rank" class="ctrl">
+            <option value="pnl" selected>PnL</option>
+            <option value="vol">Volume</option>
+          </select>
+        </div>
+      </div>
+      <div class="table-wrap">
+        <table id="lb-table">
+          <thead>
+            <tr><th>#</th><th>Trader</th><th class="num" id="lb-amount-col">PnL</th><th></th></tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- ════════ FEED DE NOVAS POSIÇÕES ════════ -->
+    <section class="panel glass" id="panel-feed">
+      <div class="panel-head">
+        <h2>⚡ Novas Posições <span class="sub" id="feed-meta"></span></h2>
+        <button class="ctrl btn" id="feed-refresh">↻ atualizar</button>
+      </div>
+      <div class="feed" id="feed"></div>
+    </section>
+
+    <!-- ════════ DETALHE DA CARTEIRA ════════ -->
+    <section class="panel glass span2" id="panel-wallet">
+      <div class="panel-head">
+        <h2>⌖ Análise da Carteira <span class="sub" id="wallet-title">selecione um trader no ranking</span></h2>
+        <div class="controls">
+          <input id="wallet-input" class="ctrl mono" placeholder="cole um endereço 0x…" size="30" />
+          <button class="ctrl btn" id="wallet-go">analisar</button>
+          <button class="ctrl btn btn-accent hidden" id="watch-btn">+ monitorar</button>
+        </div>
+      </div>
+
+      <div id="wallet-empty" class="empty">Clique em um trader do ranking — ou cole um endereço — para ver estatísticas completas, posições abertas e histórico de trades.</div>
+
+      <div id="wallet-body" class="hidden">
+        <div class="stat-grid" id="stat-grid"></div>
+        <div class="spark-row">
+          <span class="spark-label">PERFORMANCE (snapshots de PnL)</span>
+          <canvas id="sparkline" width="600" height="48"></canvas>
+          <span class="spark-note mono" id="spark-note"></span>
+        </div>
+        <div class="two-col">
+          <div>
+            <h3>Posições abertas</h3>
+            <div class="table-wrap tall">
+              <table id="pos-table">
+                <thead><tr><th>Mercado</th><th>Lado</th><th class="num">Entrada</th><th class="num">Atual</th><th class="num">Valor</th><th class="num">PnL</th></tr></thead>
+                <tbody></tbody>
+              </table>
+            </div>
+          </div>
+          <div>
+            <h3>Últimos trades</h3>
+            <div class="table-wrap tall">
+              <table id="act-table">
+                <thead><tr><th>Quando</th><th>Op</th><th>Mercado</th><th class="num">Preço</th><th class="num">USDC</th></tr></thead>
+                <tbody></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ════════ WATCHLIST ════════ -->
+    <section class="panel glass" id="panel-watchlist">
+      <div class="panel-head"><h2>★ Minha Watchlist</h2></div>
+      <div id="watchlist" class="watchlist"></div>
+    </section>
+
+    <!-- ════════ KALSHI RADAR ════════ -->
+    <section class="panel glass" id="panel-kalshi">
+      <div class="panel-head">
+        <h2>◈ Kalshi Radar <span class="sub">mercados mais quentes · 24h</span></h2>
+      </div>
+      <p class="note">A API pública do Kalshi não expõe dados por trader — aqui você vê onde o volume está fluindo.</p>
+      <div class="table-wrap">
+        <table id="kalshi-table">
+          <thead><tr><th>Mercado</th><th class="num">Preço</th><th class="num">Δ</th><th class="num">Vol 24h</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </section>
+  </main>
+
+  <footer class="foot mono">
+    alpha radar · dados públicos polymarket / kalshi · atualização automática a cada 60s ·
+    <strong>isto não é recomendação de investimento — performance passada não garante resultado futuro</strong>
+  </footer>
+
+  <script src="app.js"></script>
+</body>
+</html>
